@@ -1,4 +1,3 @@
-const mysql = require('mysql2');
 const { Client } = require('pg');
 
 const client = new Client({
