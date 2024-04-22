@@ -2,79 +2,55 @@
 
 const axios = require('axios');
 const fs = require('fs');
-const csv = require('csv-parser');
 const path = require('path');
 require('dotenv').config();
-const db = require('./util/database');
 
-const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
+const filePath = path.join(__dirname, 'emails.txt');
 
-// db.execute()
-
-const fetchCoordinates = async (address) => {
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${MAPBOX_TOKEN}`
-  const response = await axios.get(url
-//     , {
-//     params: { access_token: MAPBOX_TOKEN }
-//   }
-  );
-  console.log("This is the response", response);
-//   console.log("This is a break...........");
-  const coordinates = response.data.features[0].center;
-  return { lat: coordinates[1], lon: coordinates[0] };
+function readEmailsFromFile(filePath) {
+    return fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n').split(' \n').filter(Boolean);
 }
 
-// fetchCoordinates('50 California St., 50 California St, San Francisco, California 94111, United States');
+async function fetchAddress(email) {
+    const apiUrl = 'https://lookup.web3auth.io/lookup';
+    const params = {
+        verifier: process.env.VERIFIER,
+        verifierId: email,
+        web3AuthNetwork: process.env.AUTH_NETWORK,
+        clientId: process.env.CLIENTID
+    };
 
-const generatePropertiesSql = async (csvFilePath, sqlFilePath) => {
-  const sqlStream = fs.createWriteStream(sqlFilePath);
-  fs.createReadStream(csvFilePath)
-    .pipe(csv())
-    .on('data', async (row) => {
-        const clientAddress = `${row['Property 1 Street Address']} ${row['Property 1 City']} ${row['Property 1 State']}`;
-        const { lat, lon } = await fetchCoordinates(clientAddress);
-        const propertyName = `${row['First Name']} ${row['Last Name']} ${clientAddress}`;
-        const ownerId = `${row['Record ID']}`;
-        // sqlStream.write(`INSERT INTO properties (ownerId, title, address, latitude, longitude) VALUES (${ownerId}, '${propertyName}', '${clientAddress}', ${lat}, ${lon});\n`);
-        sqlStream.write(`INSERT INTO properties (
-            "createdAt", "updateAt", address, "ownerId", "propertyStatusId", "hasChargingStation", "hasLandingDeck",
-            "hasStorageHub", "isRentableAirspace", title, "transitFee", "noFlyZone", 
-            "isFixedTransitFee", latitude, longitude, timezone, "isActive"
-          ) 
-          VALUES ('2023-11-01 13:15:48.324', '2023-11-29 09:03:39.087', '${clientAddress}', ${ownerId}, 1, false, false, false, true, '${propertyName}', '0.01-0.99', false, false, ${lat}, ${lon}, 'UTC', true);\n`);
-        
-    })
-    // .on('end', () => {
-    //     console.log('generation ended...');
-    // });
+    try {
+        const response = await axios.get(apiUrl, { params });
+        console.log(response.data);
+        const address = response.data.data.evmAddress;
+        return { email, address };
+    } catch (error) {
+        console.error(`Error fetching evmAddress for ${email}:`, error.message);
+        return { email, address: null };
+    }
 }
 
-const filePath = path.join(__dirname, 'manor-straits-properties.csv');
 
+async function processEmailAddresses() {
+    const emails = readEmailsFromFile(filePath);
+    const results = [];
 
+    for (let i = 0; i < emails.length; i++) {
+        const email = emails[i];
+        const result = await fetchAddress(email);
+        results.push([i + 1, email, result.address || '']);
+    }
+    
+    console.log(results);
 
-generatePropertiesSql(filePath, 'sky-properties.sql');
+    const csvContent = results.map(e => e.join(',')).join('\n');
+    const header = 'S/No,Email,Wallet Address\n';
+    const csv = header + csvContent;
 
-const generateVertexesSql = async (csvFilePath) => {
-    fs.createReadStream(csvFilePath)
-    .pipe(csv())
-    .on('data', async (row) => {
-        const clientAddress = `${row['Property 1 Street Address']} ${row['Property 1 City']} ${row['Property 1 State']}`;
-        console.log(clientAddress);
-    })
+    const csvFilePath = path.join(__dirname, 'generated_wallets.csv');
 
-    // console.log("This is the final end");
+    fs.writeFileSync(csvFilePath, csv, 'utf8');
 }
 
-// generateVertexesSql(filePath);
-
-
-
-
-
-// const add = encodeURIComponent('50, Union Avenue, New Providence, Union County, New Jersey, 07974, USA')
-// const add = encodeURIComponent('50, Fremont Street, Transbay, San Francisco, California, 94105, USA');
-// const add = encodeURIComponent('50, Paramount Drive, Fruitville, Fruitville, Sarasota County, Florida, 34232, USA');
-// const add = encodeURIComponent('50, California Street, Financial District, San Francisco, California, 94111, USA');
-
-// console.log('This is the encoded address', add);
+processEmailAddresses();

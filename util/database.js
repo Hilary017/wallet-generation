@@ -9,15 +9,3 @@ const client = new Client({
 });
 
 module.exports = client;
-
-// client.connect();
-
-// client.query('select * from test_table', (err, result) => {
-//     if(!err) {
-//         console.log(result);
-//         console.log(result.rows);
-//     }
-//     console.log('This is the error', err);
-//     client.end();
-// })
-
